@@ -12,6 +12,10 @@ func main() {
 	c := LoadConfig(true)
 	fmt.Println(c)
 
+	mondayClient := handlers.NewMondayClient(c.MondayAPIKey)
+	board, err := mondayClient.GetAllItemsInGroupsByBoardId(c.BoardID)
+	fmt.Println(board)
+
 	googleClient := handlers.NewGoogleClient(c.ClientID, c.Secret)
 
 	svc, err := calendar.New(googleClient)

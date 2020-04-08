@@ -7,10 +7,12 @@ import (
 )
 
 type Config struct {
-	Port     int    `json:"port"`
-	Env      string `json:"env"`
-	ClientID string `json:"client_id"`
-	Secret   string `json:"secret"`
+	Port         int    `json:"port"`
+	Env          string `json:"env"`
+	ClientID     string `json:"client_id"`
+	Secret       string `json:"secret"`
+	BoardID      int    `json:"board_id"`
+	MondayAPIKey string `json:"monday_api_key"`
 }
 
 func LoadConfig(useFile bool) Config {
