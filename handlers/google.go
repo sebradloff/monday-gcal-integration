@@ -47,6 +47,8 @@ func NewCalendarClient(clientID string, secret string) *CalendarClient {
 	}
 }
 
+const NewYorkTimeZone = "America/New_York"
+
 func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calendar.Calendar, error) {
 	cal := &calendar.Calendar{}
 
@@ -57,7 +59,7 @@ func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calend
 
 	var calendarID string
 	for _, calendarItem := range calendarList.Items {
-		// a calendar is deemed created if the description is the boardID
+		// a calendar is deemed created if the calendar description is the boardID
 		if calendarItem.Description == board.ID {
 			calendarID = calendarItem.Id
 		}
@@ -67,6 +69,7 @@ func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calend
 		cal = &calendar.Calendar{
 			Description: board.ID,
 			Summary:     board.Name,
+			TimeZone:    NewYorkTimeZone,
 		}
 		cal, err = c.Calendars.Insert(cal).Do()
 		if err != nil {
@@ -80,6 +83,98 @@ func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calend
 	}
 
 	return cal, nil
+}
+
+func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calendar) {
+	// current time rounded down to the begining of the day
+	loc, _ := time.LoadLocation(NewYorkTimeZone)
+	currentTime := time.Now()
+	currentDateTime := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, loc)
+
+	currentWeekday := currentDateTime.Weekday()
+
+	weekdayDatetime := make(map[int]time.Time)
+	weekdayDatetime[int(currentWeekday)] = currentDateTime
+
+	for i := 0; i <= 6; i++ {
+		if int(currentWeekday) == i {
+			continue
+		}
+		diff := i - int(currentWeekday)
+		duration := time.Hour * 24 * time.Duration(diff)
+
+		weekdayTime := currentDateTime.Add(duration)
+
+		weekdayDatetime[int(weekdayTime.Weekday())] = weekdayTime
+	}
+
+	// get events from every day this week
+	eventsMap := make(map[int]*calendar.Events)
+	for k, v := range weekdayDatetime {
+		// fmt.Println(k)
+		endOfDay := v.Add(time.Hour*23 + time.Minute*59)
+
+		events, err := c.Events.List(cal.Id).TimeMin(v.Format(time.RFC3339)).TimeMax(endOfDay.Format(time.RFC3339)).Do()
+		if err != nil {
+			panic("issue getting events")
+		}
+
+		eventsMap[k] = events
+	}
+
+	var days = map[string]int{
+		"Sunday":    0,
+		"Monday":    1,
+		"Tuesday":   2,
+		"Wednesday": 3,
+		"Thursday":  4,
+		"Friday":    5,
+		"Saturday":  6,
+	}
+
+	// add tasks as events that are missing
+	var eventsToAdd []*calendar.Event
+	for _, group := range board.Groups {
+		weekdayInt := days[group.Title]
+
+		for _, task := range group.Items {
+			taskExistsAsEvent := false
+
+			for _, event := range eventsMap[weekdayInt].Items {
+				if event.Summary == task.Name {
+					taskExistsAsEvent = true
+				}
+			}
+
+			if !taskExistsAsEvent {
+				newEvent := &calendar.Event{
+					Description: "Created by cli tool",
+					End: &calendar.EventDateTime{
+						DateTime: weekdayDatetime[weekdayInt].Add(time.Minute * 30).Format(time.RFC3339),
+						TimeZone: cal.TimeZone,
+					},
+					Start: &calendar.EventDateTime{
+						DateTime: weekdayDatetime[weekdayInt].Format(time.RFC3339),
+						TimeZone: cal.TimeZone,
+					},
+					Summary: task.Name,
+				}
+				eventsToAdd = append(eventsToAdd, newEvent)
+			}
+		}
+	}
+
+	for _, event := range eventsToAdd {
+		_, err := c.Events.Insert(cal.Id, event).Do()
+		if err != nil {
+			panic(fmt.Sprintf("issue creating events %s : %v", event.Summary, err))
+		}
+	}
+
+	// remove events that no longer exist as tasks
+	// var eventsToRemove []*calendar.Event
+
+	// update events that have changed: this will be either in Monday.com or Google calendar
 }
 
 func osUserCacheDir() string {
