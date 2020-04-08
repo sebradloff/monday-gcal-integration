@@ -91,6 +91,7 @@ func (m *MondayClient) GetAllItemsInGroupsByBoardId(boardID int) (*Board, error)
 			`)
 	req.Var("boardID", boardID)
 	req.Header.Set("Authorization", m.APIKey)
+	req.Header.Set("Cache-Control", "no-cache")
 
 	ctx := context.Background()
 
