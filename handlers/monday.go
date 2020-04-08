@@ -44,14 +44,6 @@ type ColumnValue struct {
 }
 
 type ID string
-
-const (
-	Date4    ID = "date4"
-	Numbers  ID = "numbers"
-	Priority ID = "priority"
-	Status   ID = "status"
-)
-
 type Title string
 
 const (
@@ -77,9 +69,8 @@ func (m *MondayClient) GetAllItemsInGroupsByBoardId(boardID int) (*Board, error)
 				name
 				id
 				groups{
-				id
 				title
-				items(limit: 50) {
+				items(limit: 20) {
 					id
 					name
 					updated_at
