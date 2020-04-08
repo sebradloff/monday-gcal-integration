@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
-	"github.com/machinebox/graphql"
 	"github.com/sebradloff/monday-gcal-integration/handlers"
 	"google.golang.org/api/calendar/v3"
 )
@@ -14,44 +12,9 @@ func main() {
 	c := LoadConfig(true)
 	fmt.Println(c)
 
-	client := graphql.NewClient("https://api.monday.com/v2/")
-	req := graphql.NewRequest(`
-	query getAllItemsInGroupsByBoardId ($boardID: [Int]) {
-		complexity {
-			query
-			after
-			before
-		}
-	  boards(ids: $boardID) {
-		groups{
-		  id
-		  title
-		  items(limit: 50) {
-			  id
-			  name
-			  updated_at
-			  column_values {
-				  id
-				  text
-				  title
-			  }
-		  }
-		}
-	  }
-	}
-	`)
-	req.Var("boardID", c.BoardID)
-	req.Header.Set("Authorization", c.MondayAPIKey)
-
-	// define a Context for the request
-	ctx := context.Background()
-
-	// run it and capture the response
-	var graphqlResponse interface{}
-	if err := client.Run(ctx, req, &graphqlResponse); err != nil {
-		panic(err)
-	}
-	fmt.Println(graphqlResponse)
+	mondayClient := handlers.NewMondayClient(c.MondayAPIKey)
+	board, err := mondayClient.GetAllItemsInGroupsByBoardId(c.BoardID)
+	fmt.Println(board)
 
 	googleClient := handlers.NewGoogleClient(c.ClientID, c.Secret)
 
