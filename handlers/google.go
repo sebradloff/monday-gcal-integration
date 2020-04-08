@@ -114,7 +114,6 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	// get events from every day this week
 	eventsMap := make(map[int]*calendar.Events)
 	for k, v := range weekdayDatetime {
-		// fmt.Println(k)
 		endOfDay := v.Add(time.Hour*23 + time.Minute*59)
 
 		events, err := c.Events.List(cal.Id).TimeMin(v.Format(time.RFC3339)).TimeMax(endOfDay.Format(time.RFC3339)).Do()
@@ -141,6 +140,8 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 		weekdayInt := days[group.Title]
 
 		for _, task := range group.Items {
+			taskToEvent(&task, weekdayDatetime[weekdayInt])
+
 			taskExistsAsEvent := false
 
 			for _, event := range eventsMap[weekdayInt].Items {
@@ -217,9 +218,12 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 		}
 
 		if columnValue.Title == DueDateAndTime {
-			endDateTime, err = time.Parse(DueDateAndTimeFormat, *columnValue.Text)
-			if err != nil {
-				return event, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
+			if *columnValue.Text != "" {
+				loc, _ := time.LoadLocation(NewYorkTimeZone)
+				endDateTime, err = time.ParseInLocation(DueDateAndTimeFormat, *columnValue.Text, loc)
+				if err != nil {
+					return event, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
+				}
 			}
 		}
 	}
@@ -230,9 +234,11 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 		Description: "Created by cli tool",
 		End: &calendar.EventDateTime{
 			DateTime: endDateTime.Format(time.RFC3339),
+			TimeZone: NewYorkTimeZone,
 		},
 		Start: &calendar.EventDateTime{
 			DateTime: startDateTime.Format(time.RFC3339),
+			TimeZone: NewYorkTimeZone,
 		},
 		Summary: task.Name,
 	}
