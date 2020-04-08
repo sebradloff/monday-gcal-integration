@@ -47,7 +47,10 @@ func NewCalendarClient(clientID string, secret string) *CalendarClient {
 	}
 }
 
-const NewYorkTimeZone = "America/New_York"
+const (
+	NewYorkTimeZone              = "America/New_York"
+	DefaultEstimateEventDuration = time.Minute * 30
+)
 
 func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calendar.Calendar, error) {
 	cal := &calendar.Calendar{}
@@ -148,19 +151,11 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 			}
 
 			if !taskExistsAsEvent {
-				newEvent := &calendar.Event{
-					Description: "Created by cli tool",
-					End: &calendar.EventDateTime{
-						DateTime: weekdayDatetime[weekdayInt].Add(time.Minute * 30).Format(time.RFC3339),
-						TimeZone: cal.TimeZone,
-					},
-					Start: &calendar.EventDateTime{
-						DateTime: weekdayDatetime[weekdayInt].Format(time.RFC3339),
-						TimeZone: cal.TimeZone,
-					},
-					Summary: task.Name,
+				event, err := taskToEvent(&task, weekdayDatetime[weekdayInt])
+				if err != nil {
+					panic(fmt.Sprintf("error converting task to event: %v", err))
 				}
-				eventsToAdd = append(eventsToAdd, newEvent)
+				eventsToAdd = append(eventsToAdd, event)
 			}
 		}
 	}
@@ -200,7 +195,49 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 		}
 	}
 
-	// update events that have changed: this will be either in Monday.com or Google calendar
+	// update events if the tasks dueDate and estimate are no longer in sync
+}
+
+func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, error) {
+	event := &calendar.Event{}
+
+	estimateEventDuration := DefaultEstimateEventDuration
+
+	defaultEndDateTime := defaultStartDateTime.Add(estimateEventDuration)
+	endDateTime := defaultEndDateTime
+
+	for _, columnValue := range task.ColumnValues {
+		var err error
+
+		if columnValue.Title == EstimateHours {
+			estimateEventDuration, err = time.ParseDuration(*columnValue.Text + "h")
+			if err != nil {
+				return event, fmt.Errorf("issue converting EstimateHours: %v", err)
+			}
+		}
+
+		if columnValue.Title == DueDateAndTime {
+			endDateTime, err = time.Parse(DueDateAndTimeFormat, *columnValue.Text)
+			if err != nil {
+				return event, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
+			}
+		}
+	}
+
+	startDateTime := endDateTime.Add(-estimateEventDuration)
+
+	event = &calendar.Event{
+		Description: "Created by cli tool",
+		End: &calendar.EventDateTime{
+			DateTime: endDateTime.Format(time.RFC3339),
+		},
+		Start: &calendar.EventDateTime{
+			DateTime: startDateTime.Format(time.RFC3339),
+		},
+		Summary: task.Name,
+	}
+
+	return event, nil
 }
 
 func osUserCacheDir() string {

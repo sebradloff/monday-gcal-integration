@@ -39,8 +39,9 @@ type Item struct {
 }
 
 type ColumnValue struct {
-	ID    ID    `json:"id"`
-	Title Title `json:"title"`
+	ID    ID      `json:"id"`
+	Text  *string `json:"text"`
+	Title Title   `json:"title"`
 }
 
 type ID string
@@ -51,6 +52,10 @@ const (
 	EstimateHours  Title = "Estimate Hours"
 	TitlePriority  Title = "Priority"
 	TitleStatus    Title = "Status"
+)
+
+const (
+	DueDateAndTimeFormat string = "2006-01-02 15:04"
 )
 
 //
