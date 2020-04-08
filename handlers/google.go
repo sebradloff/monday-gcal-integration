@@ -207,6 +207,9 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 	defaultEndDateTime := defaultStartDateTime.Add(estimateEventDuration)
 	endDateTime := defaultEndDateTime
 
+	defaultEventStatus := "tentative"
+	eventStatus := defaultEventStatus
+
 	for _, columnValue := range task.ColumnValues {
 		var err error
 
@@ -224,6 +227,12 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 				if err != nil {
 					return event, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
 				}
+				// ensure endDateTime is actually on the day for the group it's in
+				// if not set to defaultEndDateTime and ensure it's synced with task in Monday.com
+				if defaultEndDateTime.Sub(endDateTime) > (24 * time.Hour) {
+					endDateTime = defaultEndDateTime
+				}
+				eventStatus = "confirmed"
 			}
 		}
 	}
@@ -241,6 +250,7 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 			TimeZone: NewYorkTimeZone,
 		},
 		Summary: task.Name,
+		Status:  eventStatus,
 	}
 
 	return event, nil
