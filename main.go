@@ -13,14 +13,19 @@ func main() {
 	fmt.Println(c)
 
 	mondayClient := handlers.NewMondayClient(c.MondayAPIKey)
+	// get board from monday.com
 	board, err := mondayClient.GetAllItemsInGroupsByBoardId(c.BoardID)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(board)
 
-	googleClient := handlers.NewGoogleClient(c.ClientID, c.Secret)
+	calendarClient := handlers.NewCalendarClient(c.ClientID, c.Secret)
 
-	svc, err := calendar.New(googleClient)
+	// if calendar name does not exist, create it
+	cal, err := calendarClient.CreateCalendarForBoardIfNotExist(board)
 	if err != nil {
-		log.Fatalf("Unable to create Calendar service: %v", err)
+		panic(err)
 	}
 
 	listRes, err := svc.CalendarList.List().Do()

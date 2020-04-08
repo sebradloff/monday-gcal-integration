@@ -22,7 +22,11 @@ import (
 	"google.golang.org/api/calendar/v3"
 )
 
-func NewGoogleClient(clientID string, secret string) *http.Client {
+type CalendarClient struct {
+	calendar.Service
+}
+
+func NewCalendarClient(clientID string, secret string) *CalendarClient {
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: secret,
@@ -32,8 +36,50 @@ func NewGoogleClient(clientID string, secret string) *http.Client {
 
 	ctx := context.Background()
 
-	c := newOAuthClient(ctx, config)
-	return c
+	oauthClient := newOAuthClient(ctx, config)
+
+	svc, err := calendar.New(oauthClient)
+	if err != nil {
+		log.Fatalf("Unable to create Calendar service: %v", err)
+	}
+	return &CalendarClient{
+		Service: *svc,
+	}
+}
+
+func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calendar.Calendar, error) {
+	cal := &calendar.Calendar{}
+
+	calendarList, err := c.CalendarList.List().Do()
+	if err != nil {
+		return cal, fmt.Errorf("Unable to retrieve list of calendars: %v", err)
+	}
+
+	var calendarID string
+	for _, calendarItem := range calendarList.Items {
+		// a calendar is deemed created if the description is the boardID
+		if calendarItem.Description == board.ID {
+			calendarID = calendarItem.Id
+		}
+	}
+
+	if calendarID == "" {
+		cal = &calendar.Calendar{
+			Description: board.ID,
+			Summary:     board.Name,
+		}
+		cal, err = c.Calendars.Insert(cal).Do()
+		if err != nil {
+			return cal, fmt.Errorf("issue creating new calendar %s %v", board.Name, err)
+		}
+	} else {
+		cal, err = c.Calendars.Get(calendarID).Do()
+		if err != nil {
+			return cal, fmt.Errorf("issue getting calendarID %s %v", calendarID, err)
+		}
+	}
+
+	return cal, nil
 }
 
 func osUserCacheDir() string {

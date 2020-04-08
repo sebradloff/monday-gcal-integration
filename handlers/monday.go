@@ -21,6 +21,7 @@ type Data struct {
 
 type Board struct {
 	Name   string  `json:"name"`
+	ID     string  `json:"id"`
 	Groups []Group `json:"groups"`
 }
 
@@ -60,6 +61,8 @@ const (
 	TitleStatus    Title = "Status"
 )
 
+//
+
 func NewMondayClient(apiKey string) *MondayClient {
 	return &MondayClient{
 		Client: graphql.NewClient(mondayRootPath),
@@ -72,6 +75,7 @@ func (m *MondayClient) GetAllItemsInGroupsByBoardId(boardID int) (*Board, error)
 			query getAllItemsInGroupsByBoardId ($boardID: [Int]) {
 			boards(ids: $boardID) {
 				name
+				id
 				groups{
 				id
 				title
