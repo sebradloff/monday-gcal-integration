@@ -143,6 +143,7 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 			for _, event := range eventsMap[weekdayInt].Items {
 				if event.Summary == task.Name {
 					taskExistsAsEvent = true
+					break
 				}
 			}
 
@@ -172,7 +173,32 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	}
 
 	// remove events that no longer exist as tasks
-	// var eventsToRemove []*calendar.Event
+	var eventsToRemove []*calendar.Event
+	for _, group := range board.Groups {
+		weekdayInt := days[group.Title]
+
+		for _, event := range eventsMap[weekdayInt].Items {
+			eventIsStillTask := false
+
+			for _, task := range group.Items {
+				if event.Summary == task.Name {
+					eventIsStillTask = true
+					break
+				}
+			}
+
+			if !eventIsStillTask {
+				eventsToRemove = append(eventsToRemove, event)
+			}
+		}
+	}
+
+	for _, event := range eventsToRemove {
+		err := c.Events.Delete(cal.Id, event.Id).Do()
+		if err != nil {
+			panic(fmt.Sprintf("issue deleting event %s : %v", event.Summary, err))
+		}
+	}
 
 	// update events that have changed: this will be either in Monday.com or Google calendar
 }
