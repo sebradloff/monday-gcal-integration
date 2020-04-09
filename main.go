@@ -8,7 +8,6 @@ import (
 
 func main() {
 	c := LoadConfig(true)
-	fmt.Println(c)
 
 	mondayClient := handlers.NewMondayClient(c.MondayAPIKey)
 	// get board from monday.com
@@ -16,7 +15,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(board)
 
 	calendarClient := handlers.NewCalendarClient(c.ClientID, c.Secret)
 
@@ -27,5 +25,10 @@ func main() {
 	}
 
 	// ensure all tasks on the board exist on the calendar in the right days
-	calendarClient.SyncTasksToCalendar(board, cal)
+	_, err = calendarClient.SyncTasksToCalendar(board, cal)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("done syncing tasks to google calendar")
 }

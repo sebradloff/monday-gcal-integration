@@ -88,7 +88,7 @@ func (c *CalendarClient) CreateCalendarForBoardIfNotExist(board *Board) (*calend
 	return cal, nil
 }
 
-func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calendar) {
+func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calendar) (map[int]*calendar.Events, error) {
 	// current time rounded down to the begining of the day
 	loc, _ := time.LoadLocation(NewYorkTimeZone)
 	currentTime := time.Now()
@@ -112,16 +112,16 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	}
 
 	// get events from every day this week
-	eventsMap := make(map[int]*calendar.Events)
+	allEvents := make(map[int]*calendar.Events)
 	for k, v := range weekdayDatetime {
 		endOfDay := v.Add(time.Hour*23 + time.Minute*59)
 
 		events, err := c.Events.List(cal.Id).TimeMin(v.Format(time.RFC3339)).TimeMax(endOfDay.Format(time.RFC3339)).Do()
 		if err != nil {
-			panic("issue getting events")
+			return allEvents, fmt.Errorf("issue getting events: %v", err)
 		}
 
-		eventsMap[k] = events
+		allEvents[k] = events
 	}
 
 	var days = map[string]int{
@@ -140,11 +140,9 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 		weekdayInt := days[group.Title]
 
 		for _, task := range group.Items {
-			taskToEvent(&task, weekdayDatetime[weekdayInt])
-
 			taskExistsAsEvent := false
 
-			for _, event := range eventsMap[weekdayInt].Items {
+			for _, event := range allEvents[weekdayInt].Items {
 				if event.Summary == task.Name {
 					taskExistsAsEvent = true
 					break
@@ -152,11 +150,11 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 			}
 
 			if !taskExistsAsEvent {
-				event, err := taskToEvent(&task, weekdayDatetime[weekdayInt])
+				eventToAdd, err := taskToEvent(&task, weekdayDatetime[weekdayInt])
 				if err != nil {
-					panic(fmt.Sprintf("error converting task to event: %v", err))
+					return allEvents, fmt.Errorf("error converting task to event: %v", err)
 				}
-				eventsToAdd = append(eventsToAdd, event)
+				eventsToAdd = append(eventsToAdd, eventToAdd)
 			}
 		}
 	}
@@ -164,7 +162,7 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	for _, event := range eventsToAdd {
 		_, err := c.Events.Insert(cal.Id, event).Do()
 		if err != nil {
-			panic(fmt.Sprintf("issue creating events %s : %v", event.Summary, err))
+			return allEvents, fmt.Errorf("issue creating events %s: %v", event.Summary, err)
 		}
 	}
 
@@ -173,7 +171,7 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	for _, group := range board.Groups {
 		weekdayInt := days[group.Title]
 
-		for _, event := range eventsMap[weekdayInt].Items {
+		for _, event := range allEvents[weekdayInt].Items {
 			eventIsStillTask := false
 
 			for _, task := range group.Items {
@@ -192,11 +190,101 @@ func (c *CalendarClient) SyncTasksToCalendar(board *Board, cal *calendar.Calenda
 	for _, event := range eventsToRemove {
 		err := c.Events.Delete(cal.Id, event.Id).Do()
 		if err != nil {
-			panic(fmt.Sprintf("issue deleting event %s : %v", event.Summary, err))
+			return allEvents, fmt.Errorf("issue deleting event %s: %v", event.Summary, err)
 		}
 	}
 
-	// update events if the tasks dueDate and estimate are no longer in sync
+	// monday.com items due date column overwrites gcal end time
+	var eventsToUpdate []*calendar.Event
+	for _, group := range board.Groups {
+		weekdayInt := days[group.Title]
+
+		for _, event := range allEvents[weekdayInt].Items {
+
+			for _, task := range group.Items {
+				if event.Summary == task.Name {
+					shouldUpdateEvent, err := eventNeedsToBeUpdated(&task, event)
+					if err != nil {
+						return allEvents, fmt.Errorf("error checking if eventNeedsToBeUpdated: %v", err)
+					}
+
+					if shouldUpdateEvent {
+						eventToBeUpdated, err := taskToEvent(&task, weekdayDatetime[weekdayInt])
+						if err != nil {
+							return allEvents, fmt.Errorf("error converting task to event: %v", err)
+						}
+						eventToBeUpdated.Id = event.Id
+						eventsToUpdate = append(eventsToUpdate, eventToBeUpdated)
+					}
+				}
+			}
+		}
+	}
+
+	for _, event := range eventsToUpdate {
+		_, err := c.Events.Update(cal.Id, event.Id, event).Do()
+		if err != nil {
+			panic(fmt.Sprintf("issue updating event %s : %v", event.Summary, err))
+		}
+	}
+
+	return allEvents, nil
+}
+
+func eventNeedsToBeUpdated(task *Item, event *calendar.Event) (bool, error) {
+	var taskDueDate time.Time
+	var taskEstimate time.Duration
+
+	for _, columnValue := range task.ColumnValues {
+		var err error
+
+		if columnValue.Title == EstimateHours {
+			taskEstimate, err = time.ParseDuration(*columnValue.Text + "h")
+			if err != nil {
+				return false, fmt.Errorf("issue converting EstimateHours: %v", err)
+			}
+		}
+
+		if columnValue.Title == DueDateAndTime {
+			if *columnValue.Text != "" {
+				loc, _ := time.LoadLocation(NewYorkTimeZone)
+				taskDueDate, err = time.ParseInLocation(DueDateAndTimeFormat, *columnValue.Text, loc)
+				if err != nil {
+					return false, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
+				}
+			}
+		}
+	}
+
+	var eventEndDateTime time.Time
+	var eventStartDateTime time.Time
+	var eventDuration time.Duration
+
+	loc, _ := time.LoadLocation(NewYorkTimeZone)
+	eventEndDateTime, err := time.ParseInLocation(time.RFC3339, event.End.DateTime, loc)
+	if err != nil {
+		return false, fmt.Errorf("issue parsing event end datetime: %v", err)
+	}
+
+	eventStartDateTime, err = time.ParseInLocation(time.RFC3339, event.Start.DateTime, loc)
+	if err != nil {
+		return false, fmt.Errorf("issue parsing event start datetime: %v", err)
+	}
+
+	eventDuration = eventEndDateTime.Sub(eventStartDateTime)
+
+	// if due date doesn't exist on task
+	if taskDueDate == *new(time.Time) {
+		if eventDuration == taskEstimate {
+			return false, nil
+		}
+	}
+
+	if (eventEndDateTime.Sub(taskDueDate) == 0) && (eventDuration == taskEstimate) {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, error) {
@@ -205,7 +293,7 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 	estimateEventDuration := DefaultEstimateEventDuration
 
 	defaultEndDateTime := defaultStartDateTime.Add(estimateEventDuration)
-	endDateTime := defaultEndDateTime
+	var endDateTime time.Time
 
 	defaultEventStatus := "tentative"
 	eventStatus := defaultEventStatus
@@ -227,17 +315,28 @@ func taskToEvent(task *Item, defaultStartDateTime time.Time) (*calendar.Event, e
 				if err != nil {
 					return event, fmt.Errorf("issue parsing DueDateAndTime: %v", err)
 				}
-				// ensure endDateTime is actually on the day for the group it's in
-				// if not set to defaultEndDateTime and ensure it's synced with task in Monday.com
-				if defaultEndDateTime.Sub(endDateTime) > (24 * time.Hour) {
-					endDateTime = defaultEndDateTime
+
+				if endDateTime.Weekday() != defaultEndDateTime.Weekday() {
+					err := fmt.Errorf(
+						"the task: '%s' has a due date in Monday.com on the weekday '%s' instead of '%s'."+
+							" A task in the group '%s', if it has a due date, should be set to the same day as the group name."+
+							" Please fix in Monday.com by removing the due date or changing the date and time.",
+						task.Name, endDateTime.Weekday(), defaultEndDateTime.Weekday(), defaultEndDateTime.Weekday())
+					return event, err
 				}
 				eventStatus = "confirmed"
 			}
 		}
 	}
 
-	startDateTime := endDateTime.Add(-estimateEventDuration)
+	var startDateTime time.Time
+	// if due date not set but estimate is larger than default, ensure event starts at midnight
+	if endDateTime == *new(time.Time) {
+		startDateTime = defaultStartDateTime
+		endDateTime = startDateTime.Add(estimateEventDuration)
+	} else {
+		startDateTime = endDateTime.Add(-estimateEventDuration)
+	}
 
 	event = &calendar.Event{
 		Description: "Created by cli tool",
