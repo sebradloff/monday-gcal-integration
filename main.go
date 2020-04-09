@@ -2,35 +2,33 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/sebradloff/monday-gcal-integration/handlers"
-	"google.golang.org/api/calendar/v3"
 )
 
 func main() {
 	c := LoadConfig(true)
-	fmt.Println(c)
 
 	mondayClient := handlers.NewMondayClient(c.MondayAPIKey)
+	// get board from monday.com
 	board, err := mondayClient.GetAllItemsInGroupsByBoardId(c.BoardID)
-	fmt.Println(board)
-
-	googleClient := handlers.NewGoogleClient(c.ClientID, c.Secret)
-
-	svc, err := calendar.New(googleClient)
 	if err != nil {
-		log.Fatalf("Unable to create Calendar service: %v", err)
+		panic(err)
 	}
 
-	listRes, err := svc.CalendarList.List().Do()
+	calendarClient := handlers.NewCalendarClient(c.ClientID, c.Secret)
+
+	// if calendar name does not exist, create it
+	cal, err := calendarClient.CreateCalendarForBoardIfNotExist(board)
 	if err != nil {
-		log.Fatalf("Unable to retrieve list of calendars: %v", err)
+		panic(err)
 	}
 
-	for _, v := range listRes.Items {
-		log.Printf("Calendar ID: %v\n", v.Id)
-		log.Printf("Calendar summary: %v\n", v.Summary)
-		log.Printf("Calendar description: %v\n", v.Description)
+	// ensure all tasks on the board exist on the calendar in the right days
+	_, err = calendarClient.SyncTasksToCalendar(board, cal)
+	if err != nil {
+		panic(err)
 	}
+
+	fmt.Println("done syncing tasks to google calendar")
 }

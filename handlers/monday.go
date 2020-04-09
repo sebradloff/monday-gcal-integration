@@ -21,6 +21,7 @@ type Data struct {
 
 type Board struct {
 	Name   string  `json:"name"`
+	ID     string  `json:"id"`
 	Groups []Group `json:"groups"`
 }
 
@@ -38,19 +39,12 @@ type Item struct {
 }
 
 type ColumnValue struct {
-	ID    ID    `json:"id"`
-	Title Title `json:"title"`
+	ID    ID      `json:"id"`
+	Text  *string `json:"text"`
+	Title Title   `json:"title"`
 }
 
 type ID string
-
-const (
-	Date4    ID = "date4"
-	Numbers  ID = "numbers"
-	Priority ID = "priority"
-	Status   ID = "status"
-)
-
 type Title string
 
 const (
@@ -59,6 +53,12 @@ const (
 	TitlePriority  Title = "Priority"
 	TitleStatus    Title = "Status"
 )
+
+const (
+	DueDateAndTimeFormat string = "2006-01-02 15:04"
+)
+
+//
 
 func NewMondayClient(apiKey string) *MondayClient {
 	return &MondayClient{
@@ -72,10 +72,10 @@ func (m *MondayClient) GetAllItemsInGroupsByBoardId(boardID int) (*Board, error)
 			query getAllItemsInGroupsByBoardId ($boardID: [Int]) {
 			boards(ids: $boardID) {
 				name
-				groups{
 				id
+				groups{
 				title
-				items(limit: 50) {
+				items(limit: 20) {
 					id
 					name
 					updated_at
@@ -91,6 +91,7 @@ func (m *MondayClient) GetAllItemsInGroupsByBoardId(boardID int) (*Board, error)
 			`)
 	req.Var("boardID", boardID)
 	req.Header.Set("Authorization", m.APIKey)
+	req.Header.Set("Cache-Control", "no-cache")
 
 	ctx := context.Background()
 
