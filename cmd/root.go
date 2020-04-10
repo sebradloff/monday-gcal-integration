@@ -23,7 +23,7 @@ var (
 		Use:   "mgint",
 		Short: "A tool to integrate monday.com boards and google calendar",
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			bindViperFlags(cmd)
+			bindViperFlags(cmd.Flags())
 			err := checkRequiredFlags(cmd.Flags())
 			if err != nil {
 				panic(fmt.Sprintf("issue checkRequiredFlags: %v", err))
@@ -32,6 +32,7 @@ var (
 	}
 )
 
+// Execute root command
 func Execute() error {
 	return rootCmd.Execute()
 }
@@ -116,12 +117,12 @@ func checkRequiredFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
-func bindViperFlags(cmd *cobra.Command) {
-	viper.BindPFlags(cmd.Flags())
+func bindViperFlags(flags *pflag.FlagSet) {
+	viper.BindPFlags(flags)
 
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+	flags.VisitAll(func(f *pflag.Flag) {
 		if viper.IsSet(f.Name) && viper.GetString(f.Name) != "" {
-			cmd.Flags().Set(f.Name, viper.GetString(f.Name))
+			flags.Set(f.Name, viper.GetString(f.Name))
 		}
 	})
 }
